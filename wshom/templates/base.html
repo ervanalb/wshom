@@ -3,6 +3,13 @@
 <title>{{ title }}</title>
 </head>
 <body>
+{% if current_user.is_anonymous %}
+<a href="{{ url_for('login') }}">Login</a>
+{% else %}
+<p>Logged in as {{ current_user.username }}</p>
+<form action="{{ url_for('logout') }}" method="post"><input type="submit" value="Logout"></form>
+{% endif %}
+
 {% with messages = get_flashed_messages() %}
 {% if messages %}
 <ul>
