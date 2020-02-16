@@ -55,7 +55,6 @@ def get_groupings(g, size=4, max_depth=2):
         current_nodes = set(starting_edge)
         while True:
             if not subgraph.edges(current_nodes):
-                group = set()
                 break
             logger.debug("Current nodes are {}".format(current_nodes))
             best_edge, best_points = max([(edge, subgraph.edges[edge]["points"]) for edge in subgraph.edges(current_nodes)], key=lambda x: x[1])
@@ -68,20 +67,48 @@ def get_groupings(g, size=4, max_depth=2):
                 group.add(new_node)
                 if len(group) == size:
                     break
-                current_nodes -= set(best_edge)
                 current_nodes.add(new_node)
             subgraph.remove_edge(*best_edge)
-            if subgraph.has_edge(*current_nodes):
-                subgraph.remove_edge(*current_nodes)
-        if group:
+        if len(group) < size:
+            logger.debug("Failed to make a group")
+            g.remove_edge(*starting_edge)
+            #g.remove_nodes_from(group) # Add this line if people are getting left out
+        else:
             logger.debug("Formed a group: {}".format(group))
             groupings.append(group)
             g.remove_nodes_from(group)
-        else:
-            logger.debug("Failed to make a group")
-            g.remove_edge(*starting_edge)
     logger.debug("Was able to put {} / {} eligible people into groups".format(orig_size - len(g.nodes), orig_size))
     return groupings
+
+def simulate(g, steps=100):
+    ug = to_undirected(g)
+    isolates = get_isolated(ug)
+    logger.debug("{} / {} nodes are isolated".format(len(isolates), len(ug.nodes)))
+    ug.remove_nodes_from(isolates)
+
+    zero_points(ug)
+
+    #nx.draw(ug, with_labels=True)
+    #plt.show()
+
+    results = []
+
+    i = 0
+    for i in range(steps):
+        logger.debug("Step {}".format(i))
+        increment_points(ug)
+        eg = without_ineligible(ug)
+        if eg.nodes:
+            groupings = get_groupings(eg)
+            results.append(groupings)
+            for group in groupings:
+                logger.debug(", ".join([repr(n) for n in group]) + " should hang out")
+                zero_points(ug, group)
+
+        #print(nx.get_node_attributes(eg, "points"))
+        #print(nx.get_edge_attributes(eg, "points"))
+
+    return ug, results
 
 def main():
     import matplotlib.pyplot as plt
@@ -113,40 +140,24 @@ def main():
         ("A", "E"),
     ]
 
-    logging.basicConfig(level=logging.DEBUG)
+    #logging.basicConfig(level=logging.DEBUG)
 
     #g = nx.DiGraph()
     #g.add_nodes_from(nodes.items())
     #g.add_edges_from(edges)
 
-    random.seed(2)
-
-    g = nx.fast_gnp_random_graph(10, 0.5, directed=True)
-    nx.set_node_attributes(g, {n: {"min_interval": random.randint(5, 10)} for n in g.nodes})
-
-    ug = to_undirected(g)
-    isolates = get_isolated(ug)
-    print("{} / {} nodes are isolated".format(len(isolates), len(ug.nodes)))
-    ug.remove_nodes_from(isolates)
-
-    zero_points(ug)
-
-    nx.draw(ug, with_labels=True)
-    plt.show()
-
-    i = 0
-    for i in range(100):
-        print(i)
-        increment_points(ug)
-        eg = without_ineligible(ug)
-        if eg.nodes:
-            groupings = get_groupings(eg)
+    for i in range(10):
+        random.seed(i)
+        g = nx.fast_gnp_random_graph(10, 0.5, directed=True)
+        nx.set_node_attributes(g, {n: {"min_interval": random.randint(5, 10)} for n in g.nodes})
+        ug, results = simulate(g)
+        hangouts = {n: 0 for n in ug.nodes}
+        for groupings in results:
             for group in groupings:
-                print(",".join([str(n) for n in group]), "should hang out")
-                zero_points(ug, group)
+                for n in group:
+                    hangouts[n] += 1
 
-        print(nx.get_node_attributes(eg, "points"))
-        print(nx.get_edge_attributes(eg, "points"))
+        print("Total hangouts: {}".format(hangouts))
 
 if __name__ == "__main__":
     main()
