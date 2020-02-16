@@ -30,12 +30,19 @@ def get_isolated(g, size=4, max_depth=2):
     g = g.copy()
     isolated = []
     while True:
-        newly_isolated = [n for n in g.nodes if len(nx.bfs_tree(g, n, depth_limit=max_depth).nodes) < size]
+        newly_isolated = [n for e in g.edges if len(get_valid_groupings(g, e, max_depth)) < size for n in e]
+        print("Newly isolated:", newly_isolated)
         if not newly_isolated:
             break
         g.remove_nodes_from(newly_isolated)
         isolated.extend(newly_isolated)
     return isolated
+
+def get_valid_groupings(g, edge, max_depth):
+    """ Returns a set of nodes that represent valid groupings that include the given edge """
+    (n1, n2) = [nx.bfs_tree(g, n, depth_limit=max_depth - 1).nodes for n in edge]
+    nodes = set(n1).union(n2)
+    return nodes
 
 def get_groupings(g, size=4, max_depth=2):
     orig_size = len(g.nodes)
@@ -47,9 +54,8 @@ def get_groupings(g, size=4, max_depth=2):
         # Find edge with highest points
         starting_edge, starting_points = max(nx.get_edge_attributes(g, "points").items(), key=lambda x: x[1])
         logger.debug("Starting edge is {} with {} points".format(starting_edge, starting_points))
+        nodes = get_valid_groupings(g, starting_edge, max_depth)
         group = set(starting_edge)
-        (n1, n2) = [nx.bfs_tree(g, n, depth_limit=max_depth - 1).nodes for n in starting_edge]
-        nodes = set(n1).union(n2)
         subgraph = g.subgraph(nodes).copy()
         subgraph.remove_edge(*starting_edge)
         current_nodes = set(starting_edge)
@@ -83,13 +89,14 @@ def get_groupings(g, size=4, max_depth=2):
 def simulate(g, steps=100):
     ug = to_undirected(g)
     isolates = get_isolated(ug)
-    logger.debug("{} / {} nodes are isolated".format(len(isolates), len(ug.nodes)))
+    logger.debug("{} / {} nodes are isolated: {}".format(len(isolates), len(ug.nodes), ", ".join([repr(n) for n in isolates])))
     ug.remove_nodes_from(isolates)
 
     zero_points(ug)
 
-    #nx.draw(ug, with_labels=True)
-    #plt.show()
+    import matplotlib.pyplot as plt
+    nx.draw(ug, with_labels=True)
+    plt.show()
 
     results = []
 
@@ -100,10 +107,12 @@ def simulate(g, steps=100):
         eg = without_ineligible(ug)
         if eg.nodes:
             groupings = get_groupings(eg)
-            results.append(groupings)
             for group in groupings:
                 logger.debug(", ".join([repr(n) for n in group]) + " should hang out")
                 zero_points(ug, group)
+        else:
+            groupings = []
+        results.append(groupings)
 
         #print(nx.get_node_attributes(eg, "points"))
         #print(nx.get_edge_attributes(eg, "points"))
@@ -111,44 +120,58 @@ def simulate(g, steps=100):
     return ug, results
 
 def main():
-    import matplotlib.pyplot as plt
     import time
     import random
 
-    nodes = {
-        "A": {"min_interval": 5},
-        "B": {"min_interval": 6},
-        "C": {"min_interval": 7},
-        "D": {"min_interval": 3},
-        "E": {"min_interval": 3},
-        "F": {"min_interval": 3},
-    }
+    #nodes = {
+    #    "A": {"min_interval": 5},
+    #    "B": {"min_interval": 6},
+    #    "C": {"min_interval": 7},
+    #    "D": {"min_interval": 3},
+    #    "E": {"min_interval": 3},
+    #    "F": {"min_interval": 3},
+    #}
 
-    edges = [
-        ("A", "B"),
-        ("B", "A"),
-        ("C", "B"),
-        ("B", "C"),
-        ("D", "E"),
-        ("E", "D"),
-        ("D", "A"),
-        ("A", "D"),
-        ("E", "C"),
-        ("C", "E"),
-        ("E", "F"),
-        ("E", "A"),
-        ("A", "E"),
-    ]
+    #edges = [
+    #    ("A", "B"),
+    #    ("B", "A"),
+    #    ("C", "B"),
+    #    ("B", "C"),
+    #    ("D", "E"),
+    #    ("E", "D"),
+    #    ("D", "A"),
+    #    ("A", "D"),
+    #    ("E", "C"),
+    #    ("C", "E"),
+    #    ("E", "F"),
+    #    ("E", "A"),
+    #    ("A", "E"),
+    #]
 
-    #logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG)
 
     #g = nx.DiGraph()
     #g.add_nodes_from(nodes.items())
     #g.add_edges_from(edges)
 
-    for i in range(10):
+    g = nx.Graph()
+    with open("hub-spoke.txt") as f:
+        for l in f:
+            group = [n.strip() for n in l.split(",") if n.strip()]
+            for n in group[1:]:
+                g.add_edge(group[0], n)
+
+    with open("complete.txt") as f:
+        for l in f:
+            group = [n.strip() for n in l.split(" ") if n.strip()]
+            for n1 in group:
+                for n2 in group:
+                    if n1 != n2:
+                        g.add_edge(n1, n2)
+
+    for i in range(1):
         random.seed(i)
-        g = nx.fast_gnp_random_graph(10, 0.5, directed=True)
+        #g = nx.fast_gnp_random_graph(10, 0.5, directed=True)
         nx.set_node_attributes(g, {n: {"min_interval": random.randint(5, 10)} for n in g.nodes})
         ug, results = simulate(g)
         hangouts = {n: 0 for n in ug.nodes}
@@ -158,6 +181,8 @@ def main():
                     hangouts[n] += 1
 
         print("Total hangouts: {}".format(hangouts))
+        for i, hangouts in enumerate(results):
+            print("On day {}, hangouts were".format(i), hangouts)
 
 if __name__ == "__main__":
     main()
