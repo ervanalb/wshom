@@ -1,5 +1,6 @@
 import networkx as nx
 import logging
+import itertools
 
 logger = logging.getLogger(__name__)
 
@@ -26,25 +27,50 @@ def without_ineligible(g):
     g.remove_nodes_from(ineligible_nodes)
     return g
 
-def get_isolated(g, size=4, max_depth=2):
+def get_isolated(g, size=4):
     g = g.copy()
-    isolated = []
+    removed_edges = set()
     while True:
-        newly_isolated = [n for e in g.edges if len(get_valid_groupings(g, e, max_depth)) < size for n in e]
-        print("Newly isolated:", newly_isolated)
+        newly_isolated = [e for e in g.edges if not get_best_group(g, e, size, return_exists=True)]
         if not newly_isolated:
             break
-        g.remove_nodes_from(newly_isolated)
-        isolated.extend(newly_isolated)
-    return isolated
+        logger.debug("These edges will never be used: {}".format(repr(newly_isolated)))
+        g.remove_edges_from(newly_isolated)
+        removed_edges = removed_edges.union(newly_isolated)
+    return list(nx.isolates(g)), removed_edges
 
-def get_valid_groupings(g, edge, max_depth):
-    """ Returns a set of nodes that represent valid groupings that include the given edge """
+def get_best_group(g, edge, size, return_exists=False):
+    logger.debug("Get best group for {}".format(repr(edge)))
+    max_depth = size - 1
     (n1, n2) = [nx.bfs_tree(g, n, depth_limit=max_depth - 1).nodes for n in edge]
     nodes = set(n1).union(n2)
-    return nodes
+    nodes -= set(edge)
+    combos = (set(edge) | set(c) for c in itertools.combinations(nodes, size - 2))
+    combo_graphs = (g.subgraph(c) for c in combos)
 
-def get_groupings(g, size=4, max_depth=2):
+    def score(gg):
+        if not nx.is_k_edge_connected(gg, 2):
+            return None
+        #return sum(sorted(nx.get_edge_attributes(g, "points").values())[-4:])
+        return sum(nx.get_edge_attributes(g, "points").values())
+
+    scores = ((c, score(c)) for c in combo_graphs)
+    scores = ((c, s) for (c, s) in scores if s is not None)
+
+    if return_exists:
+        return any(True for _ in scores)
+
+    scores = list(scores)
+    logger.debug("Found {} valid groups of {}".format(len(scores), size))
+    best_group, best_score = max(scores, key=lambda x: x[1], default=(None, None))
+
+    if best_group is not None:
+        logger.debug("Chosen group has score {}".format(best_score))
+        return set(best_group.nodes)
+    else:
+        return None
+
+def get_groupings(g, size=4):
     orig_size = len(g.nodes)
     g = g.copy()
     groupings = []
@@ -54,43 +80,25 @@ def get_groupings(g, size=4, max_depth=2):
         # Find edge with highest points
         starting_edge, starting_points = max(nx.get_edge_attributes(g, "points").items(), key=lambda x: x[1])
         logger.debug("Starting edge is {} with {} points".format(starting_edge, starting_points))
-        nodes = get_valid_groupings(g, starting_edge, max_depth)
-        group = set(starting_edge)
-        subgraph = g.subgraph(nodes).copy()
-        subgraph.remove_edge(*starting_edge)
-        current_nodes = set(starting_edge)
-        while True:
-            if not subgraph.edges(current_nodes):
-                break
-            logger.debug("Current nodes are {}".format(current_nodes))
-            best_edge, best_points = max([(edge, subgraph.edges[edge]["points"]) for edge in subgraph.edges(current_nodes)], key=lambda x: x[1])
-            logger.debug("Best next edge is {} with {} points".format(best_edge, best_points))
-            if set(best_edge).issubset(group):
-                logger.debug("{} are already in group".format(best_edge))
-            else:
-                new_node = (set(best_edge) - current_nodes).pop()
-                logger.debug("Adding {} to group".format(new_node))
-                group.add(new_node)
-                if len(group) == size:
-                    break
-                current_nodes.add(new_node)
-            subgraph.remove_edge(*best_edge)
-        if len(group) < size:
-            logger.debug("Failed to make a group")
-            g.remove_edge(*starting_edge)
-            #g.remove_nodes_from(group) # Add this line if people are getting left out
-        else:
+        group = get_best_group(g, starting_edge, size)
+        if group:
             logger.debug("Formed a group: {}".format(group))
             groupings.append(group)
             g.remove_nodes_from(group)
+        else:
+            logger.debug("Failed to make a group")
+            g.remove_edge(*starting_edge)
     logger.debug("Was able to put {} / {} eligible people into groups".format(orig_size - len(g.nodes), orig_size))
     return groupings
 
 def simulate(g, steps=100):
     ug = to_undirected(g)
-    isolates = get_isolated(ug)
+    isolates, isolated_edges = get_isolated(ug)
     logger.debug("{} / {} nodes are isolated: {}".format(len(isolates), len(ug.nodes), ", ".join([repr(n) for n in isolates])))
     ug.remove_nodes_from(isolates)
+    remaining_edges = isolated_edges.intersection(ug.edges)
+    logger.debug("{} edges are isolated: {}".format(len(remaining_edges), ", ".join([repr(n) for n in remaining_edges])))
+    ug.remove_edges_from(isolated_edges)
 
     zero_points(ug)
 
@@ -172,7 +180,7 @@ def main():
     for i in range(1):
         random.seed(i)
         #g = nx.fast_gnp_random_graph(10, 0.5, directed=True)
-        nx.set_node_attributes(g, {n: {"min_interval": random.randint(5, 10)} for n in g.nodes})
+        nx.set_node_attributes(g, {n: {"min_interval": random.randint(5, 8)} for n in g.nodes})
         ug, results = simulate(g)
         hangouts = {n: 0 for n in ug.nodes}
         for groupings in results:
