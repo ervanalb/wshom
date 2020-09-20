@@ -1,1 +1,1 @@
-from wshom import app
+from wshom import create_app
