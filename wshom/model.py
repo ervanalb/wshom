@@ -4,7 +4,6 @@ from wshom.extensions import db
 
 friendship = db.Table(
     "friendships", db.metadata,
-    db.Column("id", db.Integer, primary_key=True),
     db.Column("user_id", db.Integer, db.ForeignKey("users.id"), primary_key=True),
     db.Column("friend_id", db.Integer, db.ForeignKey("users.id"), primary_key=True)
 )
