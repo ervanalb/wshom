@@ -9,6 +9,8 @@ from flask_login import current_user
 
 blueprint = Blueprint("public", __name__, static_folder="../static")
 
+login_manager.login_view = "public.login"
+
 @blueprint.route("/login", methods=["GET", "POST"])
 def login():
     form = wshom.forms.LoginForm()
@@ -33,12 +35,13 @@ def register():
     if form.validate_on_submit():
         password_hash = werkzeug.security.generate_password_hash(form.password.data)
         user = User(username=form.username.data,
-                    password_hash=password_hash)
+                    password_hash=password_hash,
+                    email=form.email.data)
         db.session.add(user)
         db.session.commit()
         flask.flash("Registered!")
         flask_login.login_user(user, remember=True)
-        return flask.redirect(flask.url_for("public.index"))
+        return flask.redirect(flask.url_for("public.profile"))
     else:
         return flask.render_template("register.html", form=form)
 
@@ -51,6 +54,7 @@ def index():
     return flask.render_template("index.html")
 
 @blueprint.route("/friends", methods=["GET", "POST"])
+@flask_login.login_required
 def friends():
     add_friend_form = wshom.forms.AddFriendForm()
     delete_friend_form = wshom.forms.DeleteFriendForm()
@@ -68,3 +72,18 @@ def friends():
     friends = current_user.friends
     delete_friend_forms = [wshom.forms.DeleteFriendForm(delete_username=f.username) for f in friends]
     return flask.render_template("friends.html", add_friend_form=add_friend_form, friends=zip(friends, delete_friend_forms), delete_friend_form=delete_friend_form)
+
+@blueprint.route("/profile", methods=["GET", "POST"])
+@flask_login.login_required
+def profile():
+    form = wshom.forms.ProfileForm(email=current_user.email, display_name=current_user.display_name, timezone=current_user.timezone, min_interval=current_user.min_interval, active=current_user.active)
+    if form.validate_on_submit():
+        current_user.email = form.email.data
+        current_user.display_name = form.display_name.data
+        current_user.timezone = form.timezone.data
+        current_user.min_interval = form.min_interval.data
+        current_user.active = form.active.data
+        db.session.commit()
+        flask.flash("Profile updated")
+    return flask.render_template("profile.html", form=form)
+

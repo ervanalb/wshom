@@ -4,6 +4,7 @@ import wshom.config
 from wshom.extensions import db, login_manager
 import wshom.config
 import wshom.views
+import wshom.graph
 
 def register_extensions(app):
     db.init_app(app)
@@ -22,3 +23,7 @@ def create_app():
 def create_db(app):
     with app.app_context():
         db.create_all()
+
+def arrange_hangouts(app):
+    with app.app_context():
+        wshom.graph.arrange_hangouts(app)
